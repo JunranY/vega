@@ -72,6 +72,7 @@ Context.prototype = Subcontext.prototype = {
     return this.nodes[id];
   },
   set(id, node) {
+    // console.log(Error().stack)
     return this.nodes[id] = node;
   },
   add(spec, op) {

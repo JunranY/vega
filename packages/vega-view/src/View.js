@@ -148,17 +148,29 @@ inherits(View, Dataflow, {
 
   async evaluate(encode, prerun, postrun) {
     // evaluate dataflow and prerun
+    let start = performance.now();
     await Dataflow.prototype.evaluate.call(this, encode, prerun);
+
+    if (!this._profiler[this._clock]['all_evaluate']) {
+      this._profiler[this._clock]['all_evaluate'] = performance.now() - start;
+    }
+    console.log(performance.now() - start, "pure evaluate")
+    let error = new Error()
+    console.log(error.stack, "evalutate stack")
 
     // render as needed
     if (this._redraw || this._resize) {
       try {
         if (this._renderer) {
+          let start_render = performance.now()
           if (this._resize) {
             this._resize = 0;
             resizeRenderer(this);
           }
           await this._renderer.renderAsync(this._scenegraph.root);
+          if (!this._profiler[this._clock]['render']) {
+            this._profiler[this._clock]['render'] = performance.now() - start_render;
+          }
         }
         this._redraw = false;
       } catch (e) {

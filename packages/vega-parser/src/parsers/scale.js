@@ -13,6 +13,11 @@ let FIELD_REF_ID = 0;
 const MULTIDOMAIN_SORT_OPS  = {min: 'min', max: 'max', count: 'sum'};
 
 export function initScale(spec, scope) {
+  if (spec.id) {
+    // console.log(`calling ${spec.id}`)
+    if (!scope.trace[spec.id]) scope.trace[spec.id] = []
+    scope.curr = scope.trace[spec.id]
+  }
   const type = spec.type || 'linear';
 
   if (!isValidScaleType(type)) {
@@ -26,6 +31,13 @@ export function initScale(spec, scope) {
 }
 
 export function parseScale(spec, scope) {
+  if (spec.id) {
+    // console.log(`calling ${spec.id}`)
+    if (!scope.trace[spec.id]) scope.trace[spec.id] = []
+    scope.curr = scope.trace[spec.id]
+    delete spec.id
+  }
+
   const params = scope.getScale(spec.name).params;
   let key;
 
@@ -148,17 +160,17 @@ function ordinalMultipleDomain(domain, scope, fields) {
     p.fields = [scope.fieldRef(v)];
     p.as = [v];
   }
-  a = scope.add(Aggregate(p));
+  a = scope.add(Aggregate(p), "scale");
 
   // collect aggregate output
-  const c = scope.add(Collect({pulse: ref(a)}));
+  const c = scope.add(Collect({pulse: ref(a)}), "scale");
 
   // extract values for combined domain
   v = scope.add(Values({
     field: keyFieldRef,
     sort:  scope.sortRef(sort),
     pulse: ref(c)
-  }));
+  }), "scale");
 
   return ref(v);
 }
@@ -188,7 +200,7 @@ function quantileMultipleDomain(domain, scope, fields) {
   });
 
   // combine value arrays
-  return ref(scope.add(MultiValues({values: values})));
+  return ref(scope.add(MultiValues({values: values}), "scale"));
 }
 
 function numericMultipleDomain(domain, scope, fields) {
@@ -200,7 +212,7 @@ function numericMultipleDomain(domain, scope, fields) {
   });
 
   // combine extents
-  return ref(scope.add(MultiExtent({extents: extents})));
+  return ref(scope.add(MultiExtent({extents: extents}), "scale"));
 }
 
 // -- SCALE BINS -----

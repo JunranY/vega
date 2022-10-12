@@ -3,6 +3,11 @@ import {parseExpression} from 'vega-functions';
 import {error} from 'vega-util';
 
 export default function(signal, scope) {
+  if (signal.id) {
+    // console.log(`calling ${signal.id}`)
+    if(!scope.trace[signal.id]) scope.trace[signal.id] = []
+    scope.curr = scope.trace[signal.id]
+  }
   const op = scope.getSignal(signal.name);
   let expr = signal.update;
 

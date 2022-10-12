@@ -1,6 +1,6 @@
 (function (global, factory) {
-  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('d3-dsv'), require('topojson-client'), require('d3-array'), require('d3-format'), require('d3-time'), require('d3-time-format'), require('d3-shape'), require('d3-path'), require('d3-scale'), require('d3-interpolate'), require('d3-geo'), require('d3-color'), require('d3-force'), require('d3-hierarchy'), require('d3-delaunay'), require('d3-timer')) :
-  typeof define === 'function' && define.amd ? define(['exports', 'd3-dsv', 'topojson-client', 'd3-array', 'd3-format', 'd3-time', 'd3-time-format', 'd3-shape', 'd3-path', 'd3-scale', 'd3-interpolate', 'd3-geo', 'd3-color', 'd3-force', 'd3-hierarchy', 'd3-delaunay', 'd3-timer'], factory) :
+  typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports, require('d3-dsv'), require('topojson-client'), require('d3-array'), require('d3-format'), require('d3-time'), require('d3-time-format'), require('d3-shape'), require('d3-path'), require('d3-scale'), require('d3-interpolate'), require('d3-geo'), require('d3-color'), require('d3-force'), require('d3-hierarchy'), require('d3-delaunay'), require('d3-timer'), require('error-stack-parser'), require('stacktrace-js')) :
+  typeof define === 'function' && define.amd ? define(['exports', 'd3-dsv', 'topojson-client', 'd3-array', 'd3-format', 'd3-time', 'd3-time-format', 'd3-shape', 'd3-path', 'd3-scale', 'd3-interpolate', 'd3-geo', 'd3-color', 'd3-force', 'd3-hierarchy', 'd3-delaunay', 'd3-timer', 'error-stack-parser', 'stacktrace-js'], factory) :
   (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.vega = {}, global.d3, global.topojson, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3, global.d3));
 })(this, (function (exports, d3Dsv, topojsonClient, d3Array, d3Format, d3Time, d3TimeFormat, d3Shape, d3Path, $$1, $$1$1, d3Geo, d3Color, d3Force, d3Hierarchy, d3Delaunay, d3Timer) { 'use strict';
 
@@ -3492,10 +3492,13 @@
     if (!df._touched.length) {
       df.debug('Dataflow invoked, but nothing to do.');
       return df;
+    } else {
+      df.debug(df._touched);
     } // increment timestamp clock
 
 
-    const stamp = ++df._clock; // set the current pulse
+    const stamp = ++df._clock;
+    if (!(stamp in df._profiler)) df._profiler[stamp] = {}; // set the current pulse
 
     df._pulse = new Pulse(df, stamp, encode); // initialize priority queue, reset touched operators
 
@@ -3506,6 +3509,7 @@
         op,
         next,
         error;
+    let start;
 
     try {
       while (df._heap.size() > 0) {
@@ -3519,13 +3523,22 @@
         } // otherwise, evaluate the operator
 
 
+        start = performance.now();
         next = op.run(df._getPulse(op, encode));
+        this._profiler[stamp][op.id] = {
+          id: op.id,
+          op: op,
+          time: performance.now() - start
+        };
 
         if (next.then) {
           // await if operator returns a promise directly
-          next = await next;
+          // next = await next;
+          df.debug("then ".concat(op.id));
+          next = await executeAndMeasureAsync(next, op.id, df);
         } else if (next.async) {
           // queue parallel asynchronous execution
+          df.debug("async ".concat(op.id));
           async.push(next.async);
           next = StopPropagation;
         } // propagate evaluation, enqueue dependent operators
@@ -3581,6 +3594,19 @@
     }
 
     return df;
+  }
+
+  async function executeAndMeasureAsync(fn, id, df) {
+    const startTime = performance.now();
+    const result = await fn;
+    const endTime = performance.now();
+    const executionTime = endTime - startTime;
+    console.log("Executed in ".concat(executionTime, " ms"));
+    df._profiler[df._clock][id] = {
+      id,
+      executionTime
+    };
+    return result;
   }
   /**
    * Queues dataflow evaluation to run once any other queued evaluations have
@@ -3911,6 +3937,7 @@
     this._pulse = null;
     this._heap = Heap((a, b) => a.qrank - b.qrank);
     this._postrun = [];
+    this._profiler = {};
   }
 
   function logMethod(method) {
@@ -26746,6 +26773,7 @@
     },
 
     set(id, node) {
+      // console.log(Error().stack)
       return this.nodes[id] = node;
     },
 
@@ -28009,17 +28037,22 @@
     // -- DATAFLOW / RENDERING ----
     async evaluate(encode, prerun, postrun) {
       // evaluate dataflow and prerun
-      await Dataflow.prototype.evaluate.call(this, encode, prerun); // render as needed
+      let start = performance.now();
+      await Dataflow.prototype.evaluate.call(this, encode, prerun);
+      this._profiler[this._clock]['all_evaluate'] = performance.now() - start; // render as needed
 
       if (this._redraw || this._resize) {
         try {
           if (this._renderer) {
+            let start_render = performance.now();
+
             if (this._resize) {
               this._resize = 0;
               resizeRenderer(this);
             }
 
             await this._renderer.renderAsync(this._scenegraph.root);
+            this._profiler[this._clock]['render'] = performance.now() - start_render;
           }
 
           this._redraw = false;
@@ -28817,6 +28850,12 @@
   }
 
   function parseSignal(signal, scope) {
+    if (signal.id) {
+      // console.log(`calling ${signal.id}`)
+      if (!scope.trace[signal.id]) scope.trace[signal.id] = [];
+      scope.curr = scope.trace[signal.id];
+    }
+
     const name = signal.name;
 
     if (signal.push === OUTER) {
@@ -28969,7 +29008,10 @@
     const entry = streamParameters({
       stream: id
     }, stream, scope);
-    return Object.keys(entry).length === 1 ? id : scope.addStream(entry).id;
+    id = Object.keys(entry).length === 1 ? id : scope.addStream(entry).id;
+    if (!scope.mapping.hasOwnProperty("stream")) scope.mapping["stream"] = [];
+    scope.mapping["stream"].push(id);
+    return id;
   }
 
   function streamParameters(entry, stream, scope) {
@@ -29094,6 +29136,12 @@
   }
 
   function parseSignalUpdates(signal, scope) {
+    if (signal.id) {
+      // console.log(`calling ${signal.id}`)
+      if (!scope.trace[signal.id]) scope.trace[signal.id] = [];
+      scope.curr = scope.trace[signal.id];
+    }
+
     const op = scope.getSignal(signal.name);
     let expr = signal.update;
 
@@ -29155,6 +29203,12 @@
   };
 
   function initScale(spec, scope) {
+    if (spec.id) {
+      // console.log(`calling ${spec.id}`)
+      if (!scope.trace[spec.id]) scope.trace[spec.id] = [];
+      scope.curr = scope.trace[spec.id];
+    }
+
     const type = spec.type || 'linear';
 
     if (!isValidScaleType(type)) {
@@ -29168,6 +29222,13 @@
   }
 
   function parseScale(spec, scope) {
+    if (spec.id) {
+      // console.log(`calling ${spec.id}`)
+      if (!scope.trace[spec.id]) scope.trace[spec.id] = [];
+      scope.curr = scope.trace[spec.id];
+      delete spec.id;
+    }
+
     const params = scope.getScale(spec.name).params;
     let key;
     params.domain = parseScaleDomain(spec.domain, spec, scope);
@@ -29285,17 +29346,17 @@
       p.as = [v];
     }
 
-    a = scope.add(Aggregate(p)); // collect aggregate output
+    a = scope.add(Aggregate(p), "scale"); // collect aggregate output
 
     const c = scope.add(Collect({
       pulse: ref(a)
-    })); // extract values for combined domain
+    }), "scale"); // extract values for combined domain
 
     v = scope.add(Values({
       field: keyFieldRef,
       sort: scope.sortRef(sort),
       pulse: ref(c)
-    }));
+    }), "scale");
     return ref(v);
   }
 
@@ -29327,7 +29388,7 @@
 
     return ref(scope.add(MultiValues({
       values: values
-    })));
+    }), "scale"));
   }
 
   function numericMultipleDomain(domain, scope, fields) {
@@ -29340,7 +29401,7 @@
 
     return ref(scope.add(MultiExtent({
       extents: extents
-    })));
+    }), "scale"));
   } // -- SCALE BINS -----
 
 
@@ -29409,6 +29470,12 @@
   }
 
   function parseProjection(proj, scope) {
+    if (proj.id) {
+      // console.log(`calling ${proj.id}`)
+      scope.trace[proj.id] = [];
+      scope.curr = scope.trace[proj.id];
+    }
+
     const config = scope.config.projection || {},
           params = {};
 
@@ -30090,7 +30157,7 @@
     const def = definition$1(spec.type);
     if (!def) error('Unrecognized transform type: ' + $(spec.type));
     const t = entry(def.type.toLowerCase(), null, parseParameters(def, spec, scope));
-    if (spec.signal) scope.addSignal(spec.signal, scope.proxy(t));
+    if (spec.signal) scope.addSignal(spec.signal, scope.proxy(t, spec.signal));
     t.metadata = def.metadata || {};
     return t;
   }
@@ -30144,10 +30211,10 @@
     const type = def.type;
 
     if (isSignal(value)) {
-      return isExpr(type) ? error('Expression references can not be signals.') : isField(type) ? scope.fieldRef(value) : isCompare(type) ? scope.compareRef(value) : scope.signalRef(value.signal);
+      return isExpr(type) ? error('Expression references can not be signals.') : isField(type) ? scope.fieldRef(value) : isCompare(type) ? scope.compareRef(value, def.name) : scope.signalRef(value.signal);
     } else {
       const expr = def.expr || isField(type);
-      return expr && outerExpr(value) ? scope.exprRef(value.expr, value.as) : expr && outerField(value) ? fieldRef$1(value.field, value.as) : isExpr(type) ? parser(value, scope) : isData(type) ? ref(scope.getData(value).values) : isField(type) ? fieldRef$1(value) : isCompare(type) ? scope.compareRef(value) : value;
+      return expr && outerExpr(value) ? scope.exprRef(value.expr, value.as) : expr && outerField(value) ? fieldRef$1(value.field, value.as) : isExpr(type) ? parser(value, scope) : isData(type) ? ref(scope.getData(value).values) : isField(type) ? fieldRef$1(value) : isCompare(type) ? scope.compareRef(value, def.name) : value;
     }
   }
   /**
@@ -30223,11 +30290,11 @@
 
   const isCompare = _ => _ === 'compare';
 
-  function parseData$1(from, group, scope) {
+  function parseData$1(from, group, scope, name) {
     let facet, key, op, dataRef, parent; // if no source data, generate singleton datum
 
     if (!from) {
-      dataRef = ref(scope.add(Collect(null, [{}])));
+      dataRef = ref(scope.add(Collect(null, [{}]), name));
     } // if faceted, process facet specification
     else if (facet = from.facet) {
       if (!group) error('Only group marks can be faceted.'); // use pre-faceted source data, if available
@@ -30243,7 +30310,7 @@
           }, facet.aggregate), scope);
           op.params.key = scope.keyRef(facet.groupby);
           op.params.pulse = getDataRef(facet, scope);
-          dataRef = parent = ref(scope.add(op));
+          dataRef = parent = ref(scope.add(op, name));
         } else {
           parent = ref(scope.getData(from.data).aggregate);
         }
@@ -30283,7 +30350,7 @@
     this.index = {};
   }
 
-  DataScope.fromEntries = function (scope, entries) {
+  DataScope.fromEntries = function (scope, entries, name) {
     const n = entries.length,
           values = entries[n - 1],
           output = entries[n - 2];
@@ -30296,11 +30363,11 @@
     } // add operator entries to this scope, wire up pulse chain
 
 
-    scope.add(entries[0]);
+    scope.add(entries[0], name);
 
     for (; i < n; ++i) {
       entries[i].params.pulse = ref(entries[i - 1]);
-      scope.add(entries[i]);
+      scope.add(entries[i], name);
       if (entries[i].type === 'aggregate') aggr = entries[i];
     }
 
@@ -30354,7 +30421,7 @@
         pulse: ref(ds.output)
       };
       if (sort) params.sort = scope.sortRef(counts);
-      op = scope.add(entry(optype, undefined, params));
+      op = scope.add(entry(optype, undefined, params), name);
       if (index) ds.index[field] = op;
       v = ref(op);
       if (k != null) cache[k] = v;
@@ -30441,23 +30508,23 @@
       op = scope.add(PreFacet({
         field: scope.fieldRef(facet.field),
         pulse: data
-      }));
+      }), name);
     } else if (facet.groupby) {
       op = scope.add(Facet({
         key: scope.keyRef(facet.groupby),
         group: ref(scope.proxy(group.parent)),
         pulse: data
-      }));
+      }), name);
     } else {
       error('Facet must specify groupby or field: ' + $(facet));
     } // initialize facet subscope
 
 
     const subscope = scope.fork(),
-          source = subscope.add(Collect()),
+          source = subscope.add(Collect(), name),
           values = subscope.add(Sieve({
       pulse: ref(source)
-    }));
+    }), name);
     subscope.addData(name, new DataScope(subscope, source, source, values));
     subscope.addSignal('parent', null); // parse faceted subflow
 
@@ -30469,9 +30536,9 @@
   function parseSubflow(spec, scope, input) {
     const op = scope.add(PreFacet({
       pulse: input.pulse
-    })),
+    }), "subflow"),
           subscope = scope.fork();
-    subscope.add(Sieve());
+    subscope.add(Sieve(), "subflow");
     subscope.addSignal('parent', null); // parse group mark subflow
 
     op.params.subflow = {
@@ -30485,7 +30552,7 @@
           toggle = spec.toggle,
           modify = spec.modify,
           values = spec.values,
-          op = scope.add(operator());
+          op = scope.add(operator(), name);
     const update = 'if(' + spec.trigger + ',modify("' + name + '",' + [insert, remove, toggle, modify, values].map(_ => _ == null ? 'null' : _).join(',') + '),0)';
     const expr = parser(update, scope);
     op.update = expr.$expr;
@@ -30493,6 +30560,21 @@
   }
 
   function parseMark(spec, scope) {
+    if (spec.id) {
+      // console.log(`calling ${spec.id}`)
+      if (!scope.trace[spec.id]) scope.trace[spec.id] = [];
+      scope.curr = scope.trace[spec.id];
+    } // let stacktrace = Error().stack
+    // var stackfame = ErrorStackParser.parse(Error());
+    // console.log(stacktrace)
+    // console.log(stackfame)
+    // if ((!stackfame[1].functionName || stackfame[1].functionName == '' || stackfame[1].functionName == 'anonymous') && stackfame[2].functionName == 'parseScope') {
+    //   parseMarkCounter++
+    //   console.log("func parseMark has been called " + parseMarkCounter + " times");
+    //   console.log("\n");
+    // }
+
+
     const role = getRole(spec),
           group = spec.type === GroupMark,
           facet = spec.from && spec.from.facet,
@@ -30505,20 +30587,21 @@
         name,
         layoutRef,
         boundRef;
+    name = spec.name || role;
     const nested = role === MarkRole || layout || facet; // resolve input data
 
-    const input = parseData$1(spec.from, group, scope); // data join to map tuples to visual items
+    const input = parseData$1(spec.from, group, scope, name); // data join to map tuples to visual items
 
     op = scope.add(DataJoin({
       key: input.key || (spec.key ? fieldRef$1(spec.key) : undefined),
       pulse: input.pulse,
       clean: !group
-    }));
+    }), name);
     const joinRef = ref(op); // collect visual items
 
     op = store = scope.add(Collect({
       pulse: joinRef
-    })); // connect visual items to scenegraph
+    }), name); // connect visual items to scenegraph
 
     op = scope.add(Mark({
       markdef: definition(spec),
@@ -30531,13 +30614,13 @@
       parent: scope.signals.parent ? scope.signalRef('parent') : null,
       index: scope.markpath(),
       pulse: ref(op)
-    }));
+    }), name);
     const markRef = ref(op); // add visual encoders
 
     op = enc = scope.add(Encode(parseEncode(spec.encode, spec.type, role, spec.style, scope, {
       mod: false,
       pulse: markRef
-    }))); // monitor parent marks to propagate changes
+    })), name); // monitor parent marks to propagate changes
 
     op.params.parent = scope.encode(); // add post-encoding transforms, if defined
 
@@ -30553,16 +30636,16 @@
         if (!md.nomod) enc.params.mod = true; // update encode mod handling
 
         tx.params.pulse = ref(op);
-        scope.add(op = tx);
+        scope.add(op = tx, name);
       });
     } // if item sort specified, perform post-encoding
 
 
     if (spec.sort) {
       op = scope.add(SortItems({
-        sort: scope.compareRef(spec.sort),
+        sort: scope.compareRef(spec.sort, name),
         pulse: ref(op)
-      }));
+      }), name);
     }
 
     const encodeRef = ref(op); // add view layout operator if needed
@@ -30573,7 +30656,7 @@
         legends: scope.legends,
         mark: markRef,
         pulse: encodeRef
-      }));
+      }), name);
       layoutRef = ref(layout);
     } // compute bounding boxes
 
@@ -30581,7 +30664,7 @@
     const bound = scope.add(Bound({
       mark: markRef,
       pulse: layoutRef || encodeRef
-    }));
+    }), name);
     boundRef = ref(bound); // if group mark, recurse to parse nested content
 
     if (group) {
@@ -30607,16 +30690,16 @@
 
 
     if (overlap) {
-      boundRef = parseOverlap(overlap, boundRef, scope);
+      boundRef = parseOverlap(overlap, boundRef, scope, name);
     } // render / sieve items
 
 
     const render = scope.add(Render({
       pulse: boundRef
-    })),
+    }), name),
           sieve = scope.add(Sieve({
       pulse: ref(render)
-    }, undefined, scope.parent())); // if mark is named, make accessible as reactive geometry
+    }, undefined, scope.parent()), name); // if mark is named, make accessible as reactive geometry
     // add trigger updates if defined
 
     if (spec.name != null) {
@@ -30632,7 +30715,7 @@
     }
   }
 
-  function parseOverlap(overlap, source, scope) {
+  function parseOverlap(overlap, source, scope, name) {
     const method = overlap.method,
           bound = overlap.bound,
           sep = overlap.separation;
@@ -30645,7 +30728,7 @@
     if (overlap.order) {
       params.sort = scope.compareRef({
         field: overlap.order
-      });
+      }, name);
     }
 
     if (bound) {
@@ -30655,15 +30738,21 @@
       params.boundOrient = bound.orient;
     }
 
-    return ref(scope.add(Overlap(params)));
+    return ref(scope.add(Overlap(params), name));
   }
 
   function parseLegend(spec, scope) {
+    if (spec.id) {
+      // console.log(`calling ${spec.id}`)
+      scope.trace[spec.id] = [];
+      scope.curr = scope.trace[spec.id];
+    }
+
     const config = scope.config.legend,
           encode = spec.encode || {},
           _ = lookup(spec, config),
           legendEncode = encode.legend || {},
-          name = legendEncode.name || undefined,
+          name = legendEncode.name || "legend",
           interactive = legendEncode.interactive,
           style = legendEncode.style,
           scales = {};
@@ -30684,7 +30773,7 @@
       type: type,
       vgrad: type !== 'symbol' && _.isVertical()
     };
-    const dataRef = ref(scope.add(Collect(null, [datum]))); // encoding properties for legend entry sub-group
+    const dataRef = ref(scope.add(Collect(null, [datum]), name)); // encoding properties for legend entry sub-group
 
     const entryEncode = {
       enter: {
@@ -30706,7 +30795,7 @@
       minstep: scope.property(spec.tickMinStep),
       formatType: scope.property(spec.formatType),
       formatSpecifier: scope.property(spec.format)
-    }))); // continuous gradient legend
+    }), name)); // continuous gradient legend
 
     if (type === Gradient) {
       children = [legendGradient(spec, scale, config, encode.gradient), legendGradientLabels(spec, config, encode.labels, entryRef)]; // adjust default tick count based on the gradient length
@@ -30809,6 +30898,12 @@
   const angleExpr = "item.orient===\"".concat(Left, "\"?-90:item.orient===\"").concat(Right, "\"?90:0");
 
   function parseTitle(spec, scope) {
+    if (spec.id) {
+      // console.log(`calling ${spec.id}`)
+      scope.trace[spec.id] = [];
+      scope.curr = scope.trace[spec.id];
+    }
+
     spec = isString(spec) ? {
       text: spec
     } : spec;
@@ -30823,7 +30918,7 @@
 
 
     const datum = {},
-          dataRef = ref(scope.add(Collect(null, [datum]))); // include title text
+          dataRef = ref(scope.add(Collect(null, [datum]), name)); // include title text
 
     children.push(buildTitle(spec, _, titleEncode(spec), dataRef)); // include subtitle text
 
@@ -30986,6 +31081,12 @@
   }
 
   function parseData(data, scope) {
+    if (data.id) {
+      // console.log(`calling ${data.id}`)
+      scope.trace[data.id] = [];
+      scope.curr = scope.trace[data.id];
+    }
+
     const transforms = [];
 
     if (data.transform) {
@@ -31636,6 +31737,13 @@
   }
 
   function parseAxis(spec, scope) {
+    // console.log("\n");
+    if (spec.id) {
+      // console.log(`calling ${spec.id}`)
+      scope.trace[spec.id] = [];
+      scope.curr = scope.trace[spec.id];
+    }
+
     const config = axisConfig(spec, scope),
           encode = spec.encode || {},
           axisEncode = encode.axis || {},
@@ -31654,7 +31762,7 @@
       domain: !!_('domain'),
       title: spec.title != null
     };
-    const dataRef = ref(scope.add(Collect({}, [datum]))); // data source for axis ticks
+    const dataRef = ref(scope.add(Collect({}, [datum]), "axis")); // data source for axis ticks
 
     const ticksRef = ref(scope.add(AxisTicks({
       scale: scope.scaleRef(spec.scale),
@@ -31664,7 +31772,7 @@
       minstep: scope.property(spec.tickMinStep),
       formatType: scope.property(spec.formatType),
       formatSpecifier: scope.property(spec.format)
-    }))); // generate axis marks
+    }), "axis")); // generate axis marks
 
     const children = [];
     let size; // include axis gridlines if requested
@@ -31759,7 +31867,55 @@
 
     scope.parseLambdas();
     return scope;
-  }
+  } // obj[propName] = (function(fnName) {
+  //   return function() {
+  //       beforeFn.call(this, fnName, arguments);
+  //       return prop.apply(this, arguments);
+  //   }
+  // })(propName);
+  // parseAxis = (function(fnName) {
+  //   return function() {
+  //     beforeFn.call(this, fnName, arguments);
+  //     return prop.apply(this, arguments);
+  //   }
+  // })
+  // var addFnCounter = function(target){
+  //   var swap = target;
+  //   var count = 0;
+  //   return function(){
+  //       swap.apply(null, arguments);
+  //       count++;
+  //       console.log("func has been called " + count + " times");
+  //       console.log("\n");
+  //   };
+  // };
+  // var parseAxisMod = eval(parseAxis.toString())
+  // parseAxisMod = addFnCounter(parseAxisMod)
+  // function inject(obj, beforeFn) {
+  //   for (let propName of Object.getOwnPropertyNames(obj)) {
+  //       let prop = obj[propName];
+  //       if (Object.prototype.toString.call(prop) === '[object Function]') {
+  //           obj[propName] = (function(fnName) {
+  //               return function() {
+  //                   beforeFn.call(this, fnName, arguments);
+  //                   return prop.apply(this, arguments);
+  //               }
+  //           })(propName);
+  //       }
+  //   }
+  // }
+  // function logFnCall(name, args) {
+  //   let s = name + '(';
+  //   for (let i = 0; i < args.length; i++) {
+  //       if (i > 0)
+  //           s += ', ';
+  //       s += String(args[i]);
+  //   }
+  //   s += ')';
+  //   console.log(s);
+  // }
+  // inject(parseAxis.prototype, logFnCall);
+
 
   const rootEncode = spec => extendEncode({
     enter: {
@@ -31783,7 +31939,7 @@
   function parseView(spec, scope) {
     const config = scope.config; // add scenegraph root
 
-    const root = ref(scope.root = scope.add(operator())); // parse top-level signal definitions
+    const root = ref(scope.root = scope.add(operator(), "#scenegraph-root")); // parse top-level signal definitions
 
     const signals = collectSignals(spec, config);
     signals.forEach(_ => parseSignal(_, scope)); // assign description, event, legend, and locale configuration
@@ -31793,11 +31949,11 @@
     scope.legends = scope.objectProperty(config.legend && config.legend.layout);
     scope.locale = config.locale; // store root group item
 
-    const input = scope.add(Collect()); // encode root group item
+    const input = scope.add(Collect(), "#root-group"); // encode root group item
 
     const encode = scope.add(Encode(parseEncode(rootEncode(spec.encode), GroupMark, FrameRole, spec.style, scope, {
       pulse: ref(input)
-    }))); // perform view layout
+    })), "#root-group"); // perform view layout
 
     const parent = scope.add(ViewLayout({
       layout: scope.objectProperty(spec.layout),
@@ -31805,7 +31961,7 @@
       autosize: scope.signalRef('autosize'),
       mark: root,
       pulse: ref(encode)
-    }));
+    }), "#view-layout");
     scope.operators.pop(); // parse remainder of specification
 
     scope.pushState(ref(encode), ref(parent), null);
@@ -31815,13 +31971,13 @@
     let op = scope.add(Bound({
       mark: root,
       pulse: ref(parent)
-    }));
+    }), "#bound-root");
     op = scope.add(Render({
       pulse: ref(op)
-    }));
+    }), "#render-root");
     op = scope.add(Sieve({
       pulse: ref(op)
-    })); // track metadata for root item
+    }), "#sieve-root"); // track metadata for root item
 
     scope.addData('root', new DataScope(scope, input, input, op));
     return scope;
@@ -31902,6 +32058,9 @@
     this._encode = [];
     this._lookup = [];
     this._markpath = [];
+    this.mapping = {};
+    this.trace = {};
+    this.curr;
   }
 
   function Subscope(scope) {
@@ -31924,6 +32083,9 @@
     this._encode = scope._encode.slice();
     this._lookup = scope._lookup.slice();
     this._markpath = scope._markpath;
+    this.mapping = scope.mapping;
+    this.trace = scope.trace;
+    this.curr;
   }
 
   Scope.prototype = Subscope.prototype = {
@@ -31948,7 +32110,9 @@
         updates: this.updates,
         bindings: this.bindings,
         eventConfig: this.eventConfig,
-        locale: this.locale
+        locale: this.locale,
+        mapping: this.mapping,
+        trace: this.trace
       };
     },
 
@@ -31970,11 +32134,40 @@
       return op;
     },
 
-    proxy(op) {
+    add(op, name) {
+      this.operators.push(op);
+      op.id = this.id();
+      if (!this.mapping.hasOwnProperty(name)) this.mapping[name] = [];
+      this.mapping[name].push(op.id); // if pre-registration references exist, resolve them now
+
+      if (op.refs) {
+        op.refs.forEach(ref => {
+          ref.$ref = op.id;
+        });
+        op.refs = null;
+      } // console.log(`add op ${op.id}`)
+
+
+      if (this.curr) {
+        this.curr.push(op.id);
+      } // var stackTrace = Error().stack;
+      // this.trace[op.id] = stackTrace
+      // console.log(stackTrace)
+      // var stacktrace = StackTrace.getSync()
+      // console.log(stacktrace)
+      // console.log(stacktrace[0].args)
+      // console.log(stacktrace.toString())
+      // StackTrace.generateArtificially().then(_=> {console.log(_)})
+
+
+      return op;
+    },
+
+    proxy(op, name) {
       const vref = op instanceof Entry ? ref(op) : op;
       return this.add(Proxy({
         value: vref
-      }));
+      }), name);
     },
 
     addStream(stream) {
@@ -32032,11 +32225,11 @@
     pushState(encode, parent, lookup) {
       this._encode.push(ref(this.add(Sieve({
         pulse: encode
-      }))));
+      }), lookup ? "#spec-root" : "#group-mark")));
 
       this._parent.push(parent);
 
-      this._lookup.push(lookup ? ref(this.proxy(lookup)) : null);
+      this._lookup.push(lookup ? ref(this.proxy(lookup, "#group-mark")) : null);
 
       this._markpath.push(-1);
     },
@@ -32084,13 +32277,13 @@
           name: this.signalRef(s)
         };
         if (name) params.as = name;
-        this.field[s] = f = ref(this.add(Field(params)));
+        this.field[s] = f = ref(this.add(Field(params), "field-ref"));
       }
 
       return f;
     },
 
-    compareRef(cmp) {
+    compareRef(cmp, name) {
       let signal = false;
 
       const check = _ => isSignal(_) ? (signal = true, this.signalRef(_.signal)) : isExpr$1(_) ? (signal = true, this.exprRef(_.expr)) : _;
@@ -32100,7 +32293,7 @@
       return signal ? ref(this.add(Compare({
         fields: fields,
         orders: orders
-      }))) : compareRef(fields, orders);
+      }), name)) : compareRef(fields, orders);
     },
 
     keyRef(fields, flat) {
@@ -32113,7 +32306,7 @@
       return signal ? ref(this.add(Key({
         fields: fields,
         flat: flat
-      }))) : keyRef(fields, flat);
+      }), "key-ref")) : keyRef(fields, flat);
     },
 
     sortRef(sort) {
@@ -32124,7 +32317,7 @@
       return o.signal ? ref(this.add(Compare({
         fields: a,
         orders: this.signalRef(o.signal)
-      }))) : compareRef(a, o);
+      }), "sort-ref")) : compareRef(a, o);
     },
 
     // ----
@@ -32154,7 +32347,7 @@
         error('Duplicate signal name: ' + $(name));
       }
 
-      const op = value instanceof Entry ? value : this.add(operator(value));
+      const op = value instanceof Entry ? value : this.add(operator(value), name);
       return this.signals[name] = op;
     },
 
@@ -32170,7 +32363,7 @@
       if (this.signals[s]) {
         return ref(this.signals[s]);
       } else if (!has$1(this.lambdas, s)) {
-        this.lambdas[s] = this.add(operator(null));
+        this.lambdas[s] = this.add(operator(null), "signal-ref");
       }
 
       return ref(this.lambdas[s]);
@@ -32201,7 +32394,7 @@
         expr: parser(code, this)
       };
       if (name) params.expr.$name = name;
-      return ref(this.add(Expression(params)));
+      return ref(this.add(Expression(params), name));
     },
 
     addBinding(name, bind) {
@@ -32220,7 +32413,7 @@
         error('Duplicate scale or projection name: ' + $(name));
       }
 
-      this.scales[name] = this.add(transform);
+      this.scales[name] = this.add(transform, name);
     },
 
     addScale(name, params) {
@@ -32277,7 +32470,7 @@
         error('Duplicate data set name: ' + $(name));
       }
 
-      return this.addData(name, DataScope.fromEntries(this, entries));
+      return this.addData(name, DataScope.fromEntries(this, entries, name));
     }
 
   };
@@ -32588,6 +32781,7 @@
   exports.SVGRenderer = SVGRenderer;
   exports.SVGStringRenderer = SVGStringRenderer;
   exports.Scenegraph = Scenegraph;
+  exports.Scope = Scope;
   exports.TIME_UNITS = TIME_UNITS;
   exports.Transform = Transform;
   exports.View = View$1;

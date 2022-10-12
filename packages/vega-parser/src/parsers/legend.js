@@ -21,11 +21,17 @@ import {isContinuous, isDiscretizing} from 'vega-scale';
 import {error} from 'vega-util';
 
 export default function(spec, scope) {
+  if (spec.id) {
+    // console.log(`calling ${spec.id}`)
+    scope.trace[spec.id] = []
+    scope.curr = scope.trace[spec.id]
+  }
+
   const config = scope.config.legend,
         encode = spec.encode || {},
         _ = lookup(spec, config),
         legendEncode = encode.legend || {},
-        name = legendEncode.name || undefined,
+        name = legendEncode.name || "legend",
         interactive = legendEncode.interactive,
         style = legendEncode.style,
         scales = {};
@@ -48,7 +54,7 @@ export default function(spec, scope) {
     type:   type,
     vgrad:  type !== 'symbol' &&  _.isVertical()
   };
-  const dataRef = ref(scope.add(Collect(null, [datum])));
+  const dataRef = ref(scope.add(Collect(null, [datum]), name));
 
   // encoding properties for legend entry sub-group
   const entryEncode = {enter: {x: {value: 0}, y: {value: 0}}};
@@ -63,7 +69,7 @@ export default function(spec, scope) {
     minstep: scope.property(spec.tickMinStep),
     formatType: scope.property(spec.formatType),
     formatSpecifier: scope.property(spec.format)
-  })));
+  }), name));
 
   // continuous gradient legend
   if (type === Gradient) {

@@ -8,6 +8,11 @@ function outerError(prefix, name) {
 }
 
 export default function(signal, scope) {
+  if (signal.id) {
+    // console.log(`calling ${signal.id}`)
+    if (!scope.trace[signal.id]) scope.trace[signal.id] = []
+    scope.curr = scope.trace[signal.id]
+  }
   const name = signal.name;
 
   if (signal.push === OUTER) {

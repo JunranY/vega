@@ -80,7 +80,8 @@ export {
 } from 'vega-functions';
 
 export {
-  parse
+  parse,
+  Scope
 } from 'vega-parser';
 
 export {

@@ -15,7 +15,27 @@ import {fieldRef, isSignal, ref} from '../util';
 import {error} from 'vega-util';
 import {Bound, Collect, DataJoin, Encode, Mark, Overlap, Render, Sieve, SortItems, ViewLayout} from '../transforms';
 
+import ErrorStackParser from 'error-stack-parser'
+
+var parseMarkCounter = 0;
 export default function(spec, scope) {
+  if (spec.id) {
+    // console.log(`calling ${spec.id}`)
+    if (!scope.trace[spec.id]) scope.trace[spec.id] = []
+    scope.curr = scope.trace[spec.id]
+  }
+  // let stacktrace = Error().stack
+  // var stackfame = ErrorStackParser.parse(Error());
+
+  // console.log(stacktrace)
+  // console.log(stackfame)
+  // if ((!stackfame[1].functionName || stackfame[1].functionName == '' || stackfame[1].functionName == 'anonymous') && stackfame[2].functionName == 'parseScope') {
+  //   parseMarkCounter++
+  //   console.log("func parseMark has been called " + parseMarkCounter + " times");
+  //   console.log("\n");
+  // }
+  
+
   const role = getRole(spec),
         group = spec.type === GroupMark,
         facet = spec.from && spec.from.facet,
@@ -24,21 +44,23 @@ export default function(spec, scope) {
   let layout = spec.layout || role === ScopeRole || role === FrameRole,
       ops, op, store, enc, name, layoutRef, boundRef;
 
+  name = spec.name || role;
+
   const nested = role === MarkRole || layout || facet;
 
   // resolve input data
-  const input = parseData(spec.from, group, scope);
+  const input = parseData(spec.from, group, scope, name);
 
   // data join to map tuples to visual items
   op = scope.add(DataJoin({
     key:   input.key || (spec.key ? fieldRef(spec.key) : undefined),
     pulse: input.pulse,
     clean: !group
-  }));
+  }), name);
   const joinRef = ref(op);
 
   // collect visual items
-  op = store = scope.add(Collect({pulse: joinRef}));
+  op = store = scope.add(Collect({pulse: joinRef}), name);
 
   // connect visual items to scenegraph
   op = scope.add(Mark({
@@ -50,14 +72,14 @@ export default function(spec, scope) {
     parent:      scope.signals.parent ? scope.signalRef('parent') : null,
     index:       scope.markpath(),
     pulse:       ref(op)
-  }));
+  }), name);
   const markRef = ref(op);
 
   // add visual encoders
   op = enc = scope.add(Encode(parseEncode(
     spec.encode, spec.type, role, spec.style, scope,
     {mod: false, pulse: markRef}
-  )));
+  )), name);
 
   // monitor parent marks to propagate changes
   op.params.parent = scope.encode();
@@ -72,16 +94,16 @@ export default function(spec, scope) {
       }
       if (!md.nomod) enc.params.mod = true; // update encode mod handling
       tx.params.pulse = ref(op);
-      scope.add(op = tx);
+      scope.add(op = tx, name);
     });
   }
 
   // if item sort specified, perform post-encoding
   if (spec.sort) {
     op = scope.add(SortItems({
-      sort:  scope.compareRef(spec.sort),
+      sort:  scope.compareRef(spec.sort, name),
       pulse: ref(op)
-    }));
+    }), name);
   }
 
   const encodeRef = ref(op);
@@ -93,12 +115,12 @@ export default function(spec, scope) {
       legends:  scope.legends,
       mark:     markRef,
       pulse:    encodeRef
-    }));
+    }), name);
     layoutRef = ref(layout);
   }
 
   // compute bounding boxes
-  const bound = scope.add(Bound({mark: markRef, pulse: layoutRef || encodeRef}));
+  const bound = scope.add(Bound({mark: markRef, pulse: layoutRef || encodeRef}), name);
   boundRef = ref(bound);
 
   // if group mark, recurse to parse nested content
@@ -117,12 +139,12 @@ export default function(spec, scope) {
 
   // if requested, add overlap removal transform
   if (overlap) {
-    boundRef = parseOverlap(overlap, boundRef, scope);
+    boundRef = parseOverlap(overlap, boundRef, scope, name);
   }
 
   // render / sieve items
-  const render = scope.add(Render({pulse: boundRef})),
-        sieve = scope.add(Sieve({pulse: ref(render)}, undefined, scope.parent()));
+  const render = scope.add(Render({pulse: boundRef}), name),
+        sieve = scope.add(Sieve({pulse: ref(render)}, undefined, scope.parent()), name);
 
   // if mark is named, make accessible as reactive geometry
   // add trigger updates if defined
@@ -138,7 +160,7 @@ export default function(spec, scope) {
   }
 }
 
-function parseOverlap(overlap, source, scope) {
+function parseOverlap(overlap, source, scope, name) {
   const method = overlap.method,
         bound = overlap.bound,
         sep = overlap.separation;
@@ -150,7 +172,7 @@ function parseOverlap(overlap, source, scope) {
   };
 
   if (overlap.order) {
-    params.sort = scope.compareRef({field: overlap.order});
+    params.sort = scope.compareRef({field: overlap.order}, name);
   }
 
   if (bound) {
@@ -160,5 +182,5 @@ function parseOverlap(overlap, source, scope) {
     params.boundOrient = bound.orient;
   }
 
-  return ref(scope.add(Overlap(params)));
+  return ref(scope.add(Overlap(params), name));
 }

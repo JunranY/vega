@@ -7,7 +7,7 @@ export default function(spec, scope, name) {
         toggle = spec.toggle,
         modify = spec.modify,
         values = spec.values,
-        op = scope.add(operator());
+        op = scope.add(operator(), name);
 
   const update = 'if(' + spec.trigger + ',modify("'
     + name + '",'

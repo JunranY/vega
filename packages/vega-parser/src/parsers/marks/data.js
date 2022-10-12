@@ -3,12 +3,12 @@ import {Collect} from '../../transforms';
 import {ref} from '../../util';
 import {array, error, extend} from 'vega-util';
 
-export default function(from, group, scope) {
+export default function(from, group, scope, name) {
   let facet, key, op, dataRef, parent;
 
   // if no source data, generate singleton datum
   if (!from) {
-    dataRef = ref(scope.add(Collect(null, [{}])));
+    dataRef = ref(scope.add(Collect(null, [{}]), name));
   }
 
   // if faceted, process facet specification
@@ -27,7 +27,7 @@ export default function(from, group, scope) {
         }, facet.aggregate), scope);
         op.params.key = scope.keyRef(facet.groupby);
         op.params.pulse = getDataRef(facet, scope);
-        dataRef = parent = ref(scope.add(op));
+        dataRef = parent = ref(scope.add(op, name), name);
       } else {
         parent = ref(scope.getData(from.data).aggregate);
       }

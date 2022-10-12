@@ -13,6 +13,12 @@ import {extend, isString} from 'vega-util';
 const angleExpr = `item.orient==="${Left}"?-90:item.orient==="${Right}"?90:0`;
 
 export default function(spec, scope) {
+  if (spec.id) {
+    // console.log(`calling ${spec.id}`)
+    scope.trace[spec.id] = []
+    scope.curr = scope.trace[spec.id]
+  }
+
   spec = isString(spec) ? {text: spec} : spec;
 
   const _ = lookup(spec, scope.config.title),
@@ -25,7 +31,7 @@ export default function(spec, scope) {
 
   // single-element data source for group title
   const datum = {},
-        dataRef = ref(scope.add(Collect(null, [datum])));
+        dataRef = ref(scope.add(Collect(null, [datum]), name));
 
   // include title text
   children.push(buildTitle(spec, _, titleEncode(spec), dataRef));

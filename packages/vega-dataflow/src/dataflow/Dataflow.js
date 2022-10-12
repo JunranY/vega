@@ -36,6 +36,7 @@ export default function Dataflow() {
 
   this._heap = Heap((a, b) => a.qrank - b.qrank);
   this._postrun = [];
+  this._profiler = {};
 }
 
 function logMethod(method) {
