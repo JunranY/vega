@@ -155,8 +155,6 @@ inherits(View, Dataflow, {
       this._profiler[this._clock]['all_evaluate'] = performance.now() - start;
     }
     console.log(performance.now() - start, "pure evaluate")
-    let error = new Error()
-    console.log(error.stack, "evalutate stack")
 
     // render as needed
     if (this._redraw || this._resize) {
@@ -167,7 +165,10 @@ inherits(View, Dataflow, {
             this._resize = 0;
             resizeRenderer(this);
           }
+
+          let render_start = performance.now()
           await this._renderer.renderAsync(this._scenegraph.root);
+          console.log(performance.now() - render_start, "render time")
           if (!this._profiler[this._clock]['render']) {
             this._profiler[this._clock]['render'] = performance.now() - start_render;
           }

@@ -168,7 +168,7 @@ async function executeAndMeasureAsync(fn, id, df)  {
 
   const executionTime = endTime - startTime;
   console.log(`Executed in ${executionTime} ms`);
-  df._profiler[df._clock][id] = ({id, executionTime})
+  df._profiler[df._clock][id] = ({id, time:executionTime})
 
   return result;
 }
@@ -196,11 +196,9 @@ export async function runAsync(encode, prerun, postrun) {
   // await previously queued functions
   while (this._running) await this._running;
 
-  let start = performance.now()
   // run dataflow, manage running promise
   const clear = () => {
     this._running = null;
-    console.log(performance.now() - start, "evaluate all")
   }
   
   (this._running = this.evaluate(encode, prerun, postrun))

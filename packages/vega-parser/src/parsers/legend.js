@@ -31,7 +31,7 @@ export default function(spec, scope) {
         encode = spec.encode || {},
         _ = lookup(spec, config),
         legendEncode = encode.legend || {},
-        name = legendEncode.name || "legend",
+        name = legendEncode.name || undefined,
         interactive = legendEncode.interactive,
         style = legendEncode.style,
         scales = {};
