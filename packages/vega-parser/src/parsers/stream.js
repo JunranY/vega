@@ -39,9 +39,13 @@ function eventStream(stream, scope) {
   }
 
   const entry = streamParameters({stream: id}, stream, scope);
-  return Object.keys(entry).length === 1
+  id = Object.keys(entry).length === 1
     ? id
     : scope.addStream(entry).id;
+
+  if (!scope.mapping.hasOwnProperty("stream")) scope.mapping["stream"] = []
+  scope.mapping["stream"].push(id)
+  return id
 }
 
 function streamParameters(entry, stream, scope) {

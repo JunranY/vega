@@ -29,11 +29,14 @@ export async function evaluate(encode, prerun, postrun) {
   const df = this,
         async = [];
 
+  let setup = performance.now()
   // if the pulse value is set, this is a re-entrant call
   if (df._pulse) return reentrant(df);
 
   // wait for pending datasets to load
   if (df._pending) await df._pending;
+  console.log(performance.now()- setup, "dataset load time")
+
 
   // invoke prerun function, if provided
   if (prerun) await asyncCallback(df, prerun);
@@ -43,21 +46,32 @@ export async function evaluate(encode, prerun, postrun) {
     df.debug('Dataflow invoked, but nothing to do.');
     return df;
   }
+  else {
+    df.debug(df._touched)
+  }
 
   // increment timestamp clock
   const stamp = ++df._clock;
 
+  if (!(stamp in df._profiler)) df._profiler[stamp] = {}
+
   // set the current pulse
   df._pulse = new Pulse(df, stamp, encode);
 
+  setup = performance.now()
   // initialize priority queue, reset touched operators
   df._touched.forEach(op => df._enqueue(op, true));
   df._touched = UniqueList(id);
 
+  console.log(performance.now()- setup, "queue initialization time")
+
   let count = 0, op, next, error;
+  let start, end;
 
   try {
     while (df._heap.size() > 0) {
+      start = performance.now()
+
       // dequeue operator with highest priority
       op = df._heap.pop();
 
@@ -72,9 +86,14 @@ export async function evaluate(encode, prerun, postrun) {
 
       if (next.then) {
         // await if operator returns a promise directly
-        next = await next;
+        // next = await next;
+        df.debug(`then ${op.id}`)
+        next = await executeAndMeasureAsync(next, op.id, df)
+
       } else if (next.async) {
         // queue parallel asynchronous execution
+        df.debug(`async ${op.id}`)
+
         async.push(next.async);
         next = StopPropagation;
       }
@@ -82,6 +101,10 @@ export async function evaluate(encode, prerun, postrun) {
       // propagate evaluation, enqueue dependent operators
       if (next !== StopPropagation) {
         if (op._targets) op._targets.forEach(op => df._enqueue(op));
+      }
+
+      if (!this._profiler[stamp][op.id] ) {
+        this._profiler[stamp][op.id] = ({id:op.id, op:op, time:performance.now() - start})
       }
 
       // increment visit counter
@@ -117,6 +140,7 @@ export async function evaluate(encode, prerun, postrun) {
 
   // handle non-blocking asynchronous callbacks
   if (async.length) {
+    console.log("parallel async")
     Promise.all(async)
       .then(cb => df.runAsync(null, () => {
         cb.forEach(f => { try { f(df); } catch (err) { df.error(err); } });
@@ -124,6 +148,29 @@ export async function evaluate(encode, prerun, postrun) {
   }
 
   return df;
+}
+function executeAndMeasure(fn, id) {
+  const startTime = performance.now();
+  const result = fn();
+  const endTime = performance.now();
+
+  const executionTime = endTime - startTime;
+  console.log(`Executed in ${executionTime} ms`);
+  this._timers.push({id, executionTime})
+
+  return result;
+}
+
+async function executeAndMeasureAsync(fn, id, df)  {
+  const startTime = performance.now();
+  const result = await fn;
+  const endTime = performance.now();
+
+  const executionTime = endTime - startTime;
+  console.log(`Executed in ${executionTime} ms`);
+  df._profiler[df._clock][id] = ({id, time:executionTime})
+
+  return result;
 }
 
 /**
@@ -150,7 +197,10 @@ export async function runAsync(encode, prerun, postrun) {
   while (this._running) await this._running;
 
   // run dataflow, manage running promise
-  const clear = () => this._running = null;
+  const clear = () => {
+    this._running = null;
+  }
+  
   (this._running = this.evaluate(encode, prerun, postrun))
     .then(clear, clear);
 

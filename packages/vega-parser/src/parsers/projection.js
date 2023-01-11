@@ -1,6 +1,11 @@
 import {error, isArray, isObject, stringValue} from 'vega-util';
 
 export default function(proj, scope) {
+  if (proj.id) {
+    // console.log(`calling ${proj.id}`)
+    scope.trace[proj.id] = []
+    scope.curr = scope.trace[proj.id]
+  }
   const config = scope.config.projection || {},
         params = {};
 

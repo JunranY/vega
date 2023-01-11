@@ -1,4 +1,5 @@
 import DataScope from './DataScope';
+import StackTrace from 'stacktrace-js';
 
 import {
   Compare, Expression, Field, Key, Projection, Proxy, Scale, Sieve
@@ -16,6 +17,7 @@ import {
   array, error, extend, hasOwnProperty,
   isArray, isObject, isString, peek, stringValue
 } from 'vega-util';
+import { ScopeRole } from './parsers/marks/roles';
 
 export default function Scope(config, options) {
   this.config = config || {};
@@ -43,6 +45,10 @@ export default function Scope(config, options) {
   this._encode = [];
   this._lookup = [];
   this._markpath = [];
+
+  this.mapping = {}
+  this.trace = {}
+  this.curr;
 }
 
 function Subscope(scope) {
@@ -69,6 +75,10 @@ function Subscope(scope) {
   this._encode = scope._encode.slice();
   this._lookup = scope._lookup.slice();
   this._markpath = scope._markpath;
+
+  this.mapping = scope.mapping;
+  this.trace = scope.trace;
+  this.curr;
 }
 
 Scope.prototype = Subscope.prototype = {
@@ -93,7 +103,9 @@ Scope.prototype = Subscope.prototype = {
       updates:     this.updates,
       bindings:    this.bindings,
       eventConfig: this.eventConfig,
-      locale:      this.locale
+      locale:      this.locale,
+      mapping:    this.mapping,
+      trace:      this.trace
     };
   },
 
@@ -112,9 +124,37 @@ Scope.prototype = Subscope.prototype = {
     return op;
   },
 
-  proxy(op) {
+  add(op, name) {
+    this.operators.push(op);
+    op.id = this.id();
+    if (!this.mapping.hasOwnProperty(name)) this.mapping[name] = []
+    this.mapping[name].push(op.id)
+    // if pre-registration references exist, resolve them now
+    if (op.refs) {
+      op.refs.forEach(ref => { ref.$ref = op.id; });
+      op.refs = null;
+    }
+    // console.log(`add op ${op.id}`)
+    if (this.curr) {
+      this.curr.push(op.id)
+    }
+    // var stackTrace = Error().stack;
+    // this.trace[op.id] = stackTrace
+    // console.log(stackTrace)
+    
+    // var stacktrace = StackTrace.getSync()
+    // console.log(stacktrace)
+    // console.log(stacktrace[0].args)
+    // console.log(stacktrace.toString())
+
+    // StackTrace.generateArtificially().then(_=> {console.log(_)})
+    
+    return op;
+  },
+
+  proxy(op, name) {
     const vref = op instanceof Entry ? ref(op) : op;
-    return this.add(Proxy({value: vref}));
+    return this.add(Proxy({value: vref}), name);
   },
 
   addStream(stream) {
@@ -170,9 +210,9 @@ Scope.prototype = Subscope.prototype = {
   // ----
 
   pushState(encode, parent, lookup) {
-    this._encode.push(ref(this.add(Sieve({pulse: encode}))));
+    this._encode.push(ref(this.add(Sieve({pulse: encode}), lookup?"#spec-root":"#group-mark")));
     this._parent.push(parent);
-    this._lookup.push(lookup ? ref(this.proxy(lookup)) : null);
+    this._lookup.push(lookup ? ref(this.proxy(lookup, "#group-mark")) : null);
     this._markpath.push(-1);
   },
 
@@ -214,12 +254,12 @@ Scope.prototype = Subscope.prototype = {
     if (!f) {
       const params = {name: this.signalRef(s)};
       if (name) params.as = name;
-      this.field[s] = f = ref(this.add(Field(params)));
+      this.field[s] = f = ref(this.add(Field(params), "field-ref"));
     }
     return f;
   },
 
-  compareRef(cmp) {
+  compareRef(cmp, name) {
     let signal = false;
 
     const check = _ => isSignal(_)
@@ -231,7 +271,7 @@ Scope.prototype = Subscope.prototype = {
           orders = array(cmp.order).map(check);
 
     return signal
-      ? ref(this.add(Compare({fields: fields, orders: orders})))
+      ? ref(this.add(Compare({fields: fields, orders: orders}), name))
       : compareRef(fields, orders);
   },
 
@@ -246,7 +286,7 @@ Scope.prototype = Subscope.prototype = {
     fields = array(fields).map(check);
 
     return signal
-      ? ref(this.add(Key({fields: fields, flat: flat})))
+      ? ref(this.add(Key({fields: fields, flat: flat}), "key-ref"))
       : keyRef(fields, flat);
   },
 
@@ -261,7 +301,7 @@ Scope.prototype = Subscope.prototype = {
       ? ref(this.add(Compare({
           fields: a,
           orders: this.signalRef(o.signal)
-        })))
+        }), "sort-ref"))
       : compareRef(a, o);
   },
 
@@ -291,7 +331,7 @@ Scope.prototype = Subscope.prototype = {
     if (this.hasOwnSignal(name)) {
       error('Duplicate signal name: ' + stringValue(name));
     }
-    const op = value instanceof Entry ? value : this.add(operator(value));
+    const op = value instanceof Entry ? value : this.add(operator(value), name);
     return this.signals[name] = op;
   },
 
@@ -306,7 +346,7 @@ Scope.prototype = Subscope.prototype = {
     if (this.signals[s]) {
       return ref(this.signals[s]);
     } else if (!hasOwnProperty(this.lambdas, s)) {
-      this.lambdas[s] = this.add(operator(null));
+      this.lambdas[s] = this.add(operator(null), "signal-ref");
     }
     return ref(this.lambdas[s]);
   },
@@ -334,7 +374,7 @@ Scope.prototype = Subscope.prototype = {
   exprRef(code, name) {
     const params = {expr: parseExpression(code, this)};
     if (name) params.expr.$name = name;
-    return ref(this.add(Expression(params)));
+    return ref(this.add(Expression(params), name));
   },
 
   addBinding(name, bind) {
@@ -350,7 +390,7 @@ Scope.prototype = Subscope.prototype = {
     if (hasOwnProperty(this.scales, name)) {
       error('Duplicate scale or projection name: ' + stringValue(name));
     }
-    this.scales[name] = this.add(transform);
+    this.scales[name] = this.add(transform, name);
   },
 
   addScale(name, params) {
@@ -404,7 +444,7 @@ Scope.prototype = Subscope.prototype = {
     if (hasOwnProperty(this.data, name)) {
       error('Duplicate data set name: ' + stringValue(name));
     }
-    return this.addData(name, DataScope.fromEntries(this, entries));
+    return this.addData(name, DataScope.fromEntries(this, entries, name));
   }
 };
 

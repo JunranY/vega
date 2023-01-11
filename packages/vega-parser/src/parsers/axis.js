@@ -13,7 +13,17 @@ import parseMark from './mark';
 import {AxisTicks, Collect} from '../transforms';
 import {ref, value} from '../util';
 
+var parseAxisCounter = 0;
 export default function(spec, scope) {
+  parseAxisCounter++
+  // console.log("func parseAxis has been called " + parseAxisCounter + " times");
+  // console.log("\n");
+  if (spec.id) {
+    // console.log(`calling ${spec.id}`)
+    scope.trace[spec.id] = []
+    scope.curr = scope.trace[spec.id]
+  }
+
   const config = axisConfig(spec, scope),
         encode = spec.encode || {},
         axisEncode = encode.axis || {},
@@ -32,7 +42,7 @@ export default function(spec, scope) {
     domain: !!_('domain'),
     title:  spec.title != null
   };
-  const dataRef = ref(scope.add(Collect({}, [datum])));
+  const dataRef = ref(scope.add(Collect({}, [datum]), "axis"));
 
   // data source for axis ticks
   const ticksRef = ref(scope.add(AxisTicks({
@@ -43,7 +53,7 @@ export default function(spec, scope) {
     minstep: scope.property(spec.tickMinStep),
     formatType: scope.property(spec.formatType),
     formatSpecifier: scope.property(spec.format)
-  })));
+  }), "axis"));
 
   // generate axis marks
   const children = [];

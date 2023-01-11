@@ -48,3 +48,57 @@ export default function(spec, scope, preprocessed) {
 
   return scope;
 }
+// obj[propName] = (function(fnName) {
+//   return function() {
+//       beforeFn.call(this, fnName, arguments);
+//       return prop.apply(this, arguments);
+//   }
+// })(propName);
+
+// parseAxis = (function(fnName) {
+//   return function() {
+//     beforeFn.call(this, fnName, arguments);
+//     return prop.apply(this, arguments);
+//   }
+// })
+
+// var addFnCounter = function(target){
+//   var swap = target;
+//   var count = 0;
+//   return function(){
+//       swap.apply(null, arguments);
+//       count++;
+//       console.log("func has been called " + count + " times");
+//       console.log("\n");
+//   };
+// };
+
+// var parseAxisMod = eval(parseAxis.toString())
+// parseAxisMod = addFnCounter(parseAxisMod)
+
+// function inject(obj, beforeFn) {
+//   for (let propName of Object.getOwnPropertyNames(obj)) {
+//       let prop = obj[propName];
+//       if (Object.prototype.toString.call(prop) === '[object Function]') {
+//           obj[propName] = (function(fnName) {
+//               return function() {
+//                   beforeFn.call(this, fnName, arguments);
+//                   return prop.apply(this, arguments);
+//               }
+//           })(propName);
+//       }
+//   }
+// }
+
+// function logFnCall(name, args) {
+//   let s = name + '(';
+//   for (let i = 0; i < args.length; i++) {
+//       if (i > 0)
+//           s += ', ';
+//       s += String(args[i]);
+//   }
+//   s += ')';
+//   console.log(s);
+// }
+
+// inject(parseAxis.prototype, logFnCall);

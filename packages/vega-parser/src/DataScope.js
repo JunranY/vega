@@ -15,7 +15,7 @@ export default function DataScope(scope, input, output, values, aggr) {
   this.index = {};
 }
 
-DataScope.fromEntries = function(scope, entries) {
+DataScope.fromEntries = function(scope, entries, name) {
   const n = entries.length,
         values = entries[n-1],
         output = entries[n-2];
@@ -29,10 +29,10 @@ DataScope.fromEntries = function(scope, entries) {
   }
 
   // add operator entries to this scope, wire up pulse chain
-  scope.add(entries[0]);
+  scope.add(entries[0], name);
   for (; i<n; ++i) {
     entries[i].params.pulse = ref(entries[i-1]);
-    scope.add(entries[i]);
+    scope.add(entries[i], name);
     if (entries[i].type === 'aggregate') aggr = entries[i];
   }
 
@@ -81,7 +81,7 @@ function cache(scope, ds, name, optype, field, counts, index) {
       ? {field: keyFieldRef, pulse: ds.countsRef(scope, field, counts)}
       : {field: scope.fieldRef(field), pulse: ref(ds.output)};
     if (sort) params.sort = scope.sortRef(counts);
-    op = scope.add(entry(optype, undefined, params));
+    op = scope.add(entry(optype, undefined, params), name);
     if (index) ds.index[field] = op;
     v = ref(op);
     if (k != null) cache[k] = v;

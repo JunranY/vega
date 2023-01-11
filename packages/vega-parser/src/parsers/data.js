@@ -5,6 +5,11 @@ import {hasSignal, isSignal, ref} from '../util';
 import {array} from 'vega-util';
 
 export default function parseData(data, scope) {
+  if (data.id) {
+    // console.log(`calling ${data.id}`)
+    scope.trace[data.id] = []
+    scope.curr = scope.trace[data.id]
+  }
   const transforms = [];
 
   if (data.transform) {

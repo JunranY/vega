@@ -29,7 +29,7 @@ export default function parseView(spec, scope) {
   const config = scope.config;
 
   // add scenegraph root
-  const root = ref(scope.root = scope.add(operator()));
+  const root = ref(scope.root = scope.add(operator(), "#scenegraph-root"));
 
   // parse top-level signal definitions
   const signals = collectSignals(spec, config);
@@ -42,13 +42,13 @@ export default function parseView(spec, scope) {
   scope.locale = config.locale;
 
   // store root group item
-  const input = scope.add(Collect());
+  const input = scope.add(Collect(), "#root-group");
 
   // encode root group item
   const encode = scope.add(Encode(parseEncode(
     rootEncode(spec.encode), GroupMark, FrameRole,
     spec.style, scope, {pulse: ref(input)}
-  )));
+  )), "#root-group");
 
   // perform view layout
   const parent = scope.add(ViewLayout({
@@ -57,7 +57,7 @@ export default function parseView(spec, scope) {
     autosize: scope.signalRef('autosize'),
     mark:     root,
     pulse:    ref(encode)
-  }));
+  }), "#view-layout");
   scope.operators.pop();
 
   // parse remainder of specification
@@ -66,9 +66,9 @@ export default function parseView(spec, scope) {
   scope.operators.push(parent);
 
   // bound / render / sieve root item
-  let op = scope.add(Bound({mark: root, pulse: ref(parent)}));
-  op = scope.add(Render({pulse: ref(op)}));
-  op = scope.add(Sieve({pulse: ref(op)}));
+  let op = scope.add(Bound({mark: root, pulse: ref(parent)}), "#bound-root");
+  op = scope.add(Render({pulse: ref(op)}), "#render-root");
+  op = scope.add(Sieve({pulse: ref(op)}), "#sieve-root");
 
   // track metadata for root item
   scope.addData('root', new DataScope(scope, input, input, op));

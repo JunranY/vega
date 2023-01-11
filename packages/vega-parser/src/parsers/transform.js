@@ -12,7 +12,7 @@ export default function(spec, scope) {
   if (!def) error('Unrecognized transform type: ' + stringValue(spec.type));
 
   const t = entry(def.type.toLowerCase(), null, parseParameters(def, spec, scope));
-  if (spec.signal) scope.addSignal(spec.signal, scope.proxy(t));
+  if (spec.signal) scope.addSignal(spec.signal, scope.proxy(t, spec.signal));
   t.metadata = def.metadata || {};
 
   return t;
@@ -67,7 +67,7 @@ function parameterValue(def, value, scope) {
   if (isSignal(value)) {
     return isExpr(type) ? error('Expression references can not be signals.')
          : isField(type) ? scope.fieldRef(value)
-         : isCompare(type) ? scope.compareRef(value)
+         : isCompare(type) ? scope.compareRef(value, def.name)
          : scope.signalRef(value.signal);
   } else {
     const expr = def.expr || isField(type);
@@ -76,7 +76,7 @@ function parameterValue(def, value, scope) {
          : isExpr(type) ? parseExpression(value, scope)
          : isData(type) ? ref(scope.getData(value).values)
          : isField(type) ? fieldRef(value)
-         : isCompare(type) ? scope.compareRef(value)
+         : isCompare(type) ? scope.compareRef(value, def.name)
          : value;
   }
 }
